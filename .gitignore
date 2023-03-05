@@ -1,4 +1,6 @@
 .swiftpm
 .DS_Store
+.build
+*.xcodeproj
 Build
 Violet - sources
