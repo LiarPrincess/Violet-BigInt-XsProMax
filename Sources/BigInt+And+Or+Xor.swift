@@ -13,17 +13,10 @@
 
 // Implement missing pieces from 'C' integer api.
 
-extension Bool {
-
-  fileprivate var asWord: BigIntStorage.Word {
-    return self ? 1 : 0
-  }
-}
-
 extension BigIntStorage.Word {
 
-  fileprivate var isTrue: Bool {
-    return self != 0
+  fileprivate init(_ b: Bool) {
+    self = b ? 1 : 0
   }
 
   /// This implements `-` before unsigned number.
@@ -32,36 +25,35 @@ extension BigIntStorage.Word {
   /// - if it is `0` -> stay `0`
   /// - otherwise -> `MAX - x + 1`, so in our case `MAX - 1 + 1 = MAX`
   fileprivate var allOneIfTrueOtherwiseZero: BigIntStorage.Word {
-    return self.isTrue ? Self.max : Self.zero
+    return self == 0 ? Self.zero : Self.max
   }
 }
 
 extension BigInt {
 
-  public static func & (lhs: BigInt, rhs: BigInt) -> BigInt {
-    var result = lhs
-    result.and(other: rhs)
-    return result
-  }
+  // '&|^' all have default implementations which are as fast as hand written.
+  // public static func & (lhs: BigInt, rhs: BigInt) -> BigInt {
+  //   var copy = lhs
+  //   copy &= rhs
+  //   return copy
+  // }
+  // public static func | (lhs: BigInt, rhs: BigInt) -> BigInt {
+  //   var copy = lhs
+  //   copy |= rhs
+  //   return copy
+  // }
+  // public static func ^ (lhs: BigInt, rhs: BigInt) -> BigInt {
+  //   var copy = lhs
+  //   copy ^= rhs
+  //   return copy
+  // }
 
   public static func &= (lhs: inout BigInt, rhs: BigInt) {
     lhs.and(other: rhs)
   }
 
-  public static func | (lhs: BigInt, rhs: BigInt) -> BigInt {
-    var result = lhs
-    result.or(other: rhs)
-    return result
-  }
-
   public static func |= (lhs: inout BigInt, rhs: BigInt) {
     lhs.or(other: rhs)
-  }
-
-  public static func ^ (lhs: BigInt, rhs: BigInt) -> BigInt {
-    var result = lhs
-    result.xor(other: rhs)
-    return result
   }
 
   public static func ^= (lhs: inout BigInt, rhs: BigInt) {
@@ -72,8 +64,6 @@ extension BigInt {
 
   /// void
   /// mpz_and (mpz_t r, const mpz_t u, const mpz_t v)
-  ///
-  /// Variable names mostly taken from GMP.
   internal mutating func and(other: BigInt) {
     if self.isZero {
       return
@@ -86,70 +76,110 @@ extension BigInt {
 
     defer { self.storage.checkInvariants() }
 
-    // 'v' is smaller, 'u' is bigger
-    let v = self.storage.count <= other.storage.count ? self.storage : other.storage
-    let u = self.storage.count <= other.storage.count ? other.storage : self.storage
-    assert(v.count <= u.count)
+    // Self |Other|Result          Self|Other|Result
+    // short|long |count           long|short|count
+    // -----+-----+------          ----+-----+------
+    //   +  |  +  |Self              + |  +  |Other
+    //   +  |  -  |Self              + |  -  |Self
+    //   -  |  +  |Other             - |  +  |Other
+    //   -  |  -  |Other             - |  -  |Self
+    let isSelfShorter = self.storage.count <= other.storage.count
+    let isSelfResultCount = isSelfShorter ? self.isPositiveOrZero : other.isNegative
+    let resultCount = isSelfResultCount ? self.storage.count : other.storage.count
+    let capacity = resultCount + (self.isNegative && other.isNegative ? 1 : 0)
 
-    var vIsNegative = v.isNegative.asWord
-    var uIsNegative = u.isNegative.asWord
-    var bothNegative = vIsNegative & uIsNegative
+    // We will set the new count to have a full access to the underlying buffer.
+    // But we have to remember the previous count, because this is where we stop.
+    let selfCount = self.storage.count
+    let token = self.storage.guaranteeUniqueBufferReference(withCapacity: capacity)
+    self.storage.setCount(token, value: capacity)
 
-    let vMask = vIsNegative.allOneIfTrueOtherwiseZero
-    let uMask = uIsNegative.allOneIfTrueOtherwiseZero
-    let bothNegativeMask = bothNegative.allOneIfTrueOtherwiseZero
-
-    // If the smaller input is positive, higher words don't matter.
-    let resultCount = v.isPositive ? v.count : u.count
-    var result = BigIntStorage(repeating: 0, count: resultCount + Int(bothNegative))
-    let token = result.guaranteeUniqueBufferReference()
-
-    result.withMutableWordsBuffer(token) { result in
-      u.withWordsBuffer { u in
-        v.withWordsBuffer { v in
-          for i in 0..<v.count {
-            let ul = (u[i] ^ uMask) &+ uIsNegative
-            uIsNegative = (ul < uIsNegative).asWord
-
-            let vl = (v[i] ^ vMask) &+ vIsNegative
-            vIsNegative = (vl < vIsNegative).asWord
-
-            let rl = ((ul & vl) ^ bothNegativeMask) &+ bothNegative
-            bothNegative = (rl < bothNegative).asWord
-
-            result[i] = rl
-          }
-
-          assert(vIsNegative == 0)
-
-          for i in v.count..<resultCount {
-            let ul = (u[i] ^ uMask) &+ uIsNegative
-            uIsNegative = (ul < uIsNegative).asWord
-
-            let rl = ((ul & vMask) ^ bothNegativeMask) &+ bothNegative
-            bothNegative = (rl < bothNegative).asWord
-
-            result[i] = rl
-          }
-
-          if bothNegative.isTrue {
-            result[resultCount] = bothNegative
-          }
-        }
+    self.storage.withMutableWordsBuffer(token) { selfPtr in
+      other.storage.withWordsBuffer { otherPtr in
+        Self.and(
+          isLhsNegative: self.isNegative,
+          lhs: selfPtr,
+          isRhsNegative: other.isNegative,
+          rhs: otherPtr,
+          lhsCount: selfCount,
+          resultCount: resultCount
+        )
       }
     }
 
-    result.isNegative = self.isNegative && other.isNegative
-    result.fixInvariants(token)
-    self.storage = result
+    self.storage.isNegative = self.isNegative && other.isNegative
+    self.storage.fixInvariants(token)
+  }
+
+  private static func and(
+    isLhsNegative: Bool,
+    lhs: UnsafeMutableBufferPointer<Word>,
+    isRhsNegative: Bool,
+    rhs: UnsafeBufferPointer<Word>,
+    lhsCount: Int, // Count before resize
+    resultCount: Int // Count after resize (but without bothNegative word)
+  ) {
+    var isShortNegative: Word
+    let short: UnsafeBufferPointer<Word>
+    var isLongNegative: Word
+    let long: UnsafeBufferPointer<Word>
+    let commonCount: Int
+    let rhsCount = rhs.count
+
+    if lhsCount <= rhsCount {
+      short = UnsafeBufferPointer(lhs)
+      isShortNegative = Word(isLhsNegative)
+      long = rhs
+      isLongNegative = Word(isRhsNegative)
+      commonCount = lhsCount
+    } else {
+      short = rhs
+      isShortNegative = Word(isRhsNegative)
+      long = UnsafeBufferPointer(lhs)
+      isLongNegative = Word(isLhsNegative)
+      commonCount = rhsCount
+    }
+
+    var bothNegative = isShortNegative & isLongNegative
+
+    let shortMask = isShortNegative.allOneIfTrueOtherwiseZero
+    let longMask = isLongNegative.allOneIfTrueOtherwiseZero
+    let bothNegativeMask = bothNegative.allOneIfTrueOtherwiseZero
+
+    for i in 0..<commonCount {
+      let longWord = (long[i] ^ longMask) &+ isLongNegative
+      isLongNegative = Word(longWord < isLongNegative)
+
+      let shortWord = (short[i] ^ shortMask) &+ isShortNegative
+      isShortNegative = Word(shortWord < isShortNegative)
+
+      let word = ((longWord & shortWord) ^ bothNegativeMask) &+ bothNegative
+      bothNegative = Word(word < bothNegative)
+
+      lhs[i] = word
+    }
+
+    assert(isShortNegative == 0)
+
+    for i in commonCount..<resultCount {
+      let longWord = (long[i] ^ longMask) &+ isLongNegative
+      isLongNegative = Word(longWord < isLongNegative)
+
+      let word: UInt = ((longWord & shortMask) ^ bothNegativeMask) &+ bothNegative
+      bothNegative = Word(word < bothNegative)
+
+      lhs[i] = word
+    }
+
+    if isLhsNegative && isRhsNegative {
+      lhs[resultCount] = bothNegative // 0 or 1
+    }
   }
 
   // MARK: - Or
 
   /// void
   /// mpz_ior (mpz_t r, const mpz_t u, const mpz_t v)
-  ///
-  /// Variable names mostly taken from GMP.
   internal mutating func or(other: BigInt) {
     if self.isZero {
       self.storage = other.storage
@@ -162,70 +192,110 @@ extension BigInt {
 
     defer { self.storage.checkInvariants() }
 
-    // 'v' is smaller, 'u' is bigger
-    let v = self.storage.count <= other.storage.count ? self.storage : other.storage
-    let u = self.storage.count <= other.storage.count ? other.storage : self.storage
-    assert(v.count <= u.count)
+    // Self |Other|Result          Self|Other|Result
+    // short|long |count           long|short|count
+    // -----+-----+------          ----+-----+------
+    //   +  |  +  |Other             + |  +  |Self
+    //   +  |  -  |Other             + |  -  |Other
+    //   -  |  +  |Self              - |  +  |Self
+    //   -  |  -  |Self              - |  -  |Other
+    let isSelfShorter = self.storage.count <= other.storage.count
+    let isSelfResultCount = isSelfShorter ? self.isNegative : other.isPositiveOrZero
+    let resultCount = isSelfResultCount ? self.storage.count : other.storage.count
+    let capacity = resultCount + (self.isNegative || other.isNegative ? 1 : 0)
 
-    var vIsNegative = v.isNegative.asWord
-    var uIsNegative = u.isNegative.asWord
-    var anyNegative = vIsNegative | uIsNegative
+    // We will set the new count to have a full access to the underlying buffer.
+    // But we have to remember the previous count, because this is where we stop.
+    let selfCount = self.storage.count
+    let token = self.storage.guaranteeUniqueBufferReference(withCapacity: capacity)
+    self.storage.setCount(token, value: capacity)
 
-    let vMask = vIsNegative.allOneIfTrueOtherwiseZero
-    let uMask = uIsNegative.allOneIfTrueOtherwiseZero
-    let anyNegativeMask = anyNegative.allOneIfTrueOtherwiseZero
-
-    // If the smaller input is negative, by sign extension higher words don't matter.
-    let resultCount = vMask.isTrue ? v.count : u.count
-    var result = BigIntStorage(repeating: 0, count: resultCount + Int(anyNegative))
-    let token = result.guaranteeUniqueBufferReference()
-
-    result.withMutableWordsBuffer(token) { result in
-      u.withWordsBuffer { u in
-        v.withWordsBuffer { v in
-          for i in 0..<v.count {
-            let ul = (u[i] ^ uMask) &+ uIsNegative
-            uIsNegative = (ul < uIsNegative).asWord
-
-            let vl = (v[i] ^ vMask) &+ vIsNegative
-            vIsNegative = (vl < vIsNegative).asWord
-
-            let rl = ((ul | vl) ^ anyNegativeMask) &+ anyNegative
-            anyNegative = (rl < anyNegative).asWord
-
-            result[i] = rl
-          }
-
-          assert(vIsNegative == 0)
-
-          for i in v.count..<resultCount {
-            let ul = (u[i] ^ uMask) &+ uIsNegative
-            uIsNegative = (ul < uIsNegative).asWord
-
-            let rl = ((ul | vMask) ^ anyNegativeMask) &+ anyNegative
-            anyNegative = (rl < anyNegative).asWord
-
-            result[i] = rl
-          }
-
-          if anyNegative.isTrue {
-            result[resultCount] = anyNegative
-          }
-        }
+    self.storage.withMutableWordsBuffer(token) { selfPtr in
+      other.storage.withWordsBuffer { otherPtr in
+        Self.or(
+          isLhsNegative: self.isNegative,
+          lhs: selfPtr,
+          isRhsNegative: other.isNegative,
+          rhs: otherPtr,
+          lhsCount: selfCount,
+          resultCount: resultCount
+        )
       }
     }
 
-    result.isNegative = self.isNegative || other.isNegative
-    result.fixInvariants(token)
-    self.storage = result
+    self.storage.isNegative = self.isNegative || other.isNegative
+    self.storage.fixInvariants(token)
+  }
+
+  private static func or(
+    isLhsNegative: Bool,
+    lhs: UnsafeMutableBufferPointer<Word>,
+    isRhsNegative: Bool,
+    rhs: UnsafeBufferPointer<Word>,
+    lhsCount: Int, // Count before resize
+    resultCount: Int // Count after resize (but without anyNegative word)
+  ) {
+    var isShortNegative: Word
+    let short: UnsafeBufferPointer<Word>
+    var isLongNegative: Word
+    let long: UnsafeBufferPointer<Word>
+    let commonCount: Int
+    let rhsCount = rhs.count
+
+    if lhsCount <= rhsCount {
+      short = UnsafeBufferPointer(lhs)
+      isShortNegative = Word(isLhsNegative)
+      long = rhs
+      isLongNegative = Word(isRhsNegative)
+      commonCount = lhsCount
+    } else {
+      short = rhs
+      isShortNegative = Word(isRhsNegative)
+      long = UnsafeBufferPointer(lhs)
+      isLongNegative = Word(isLhsNegative)
+      commonCount = rhsCount
+    }
+
+    var anyNegative = isShortNegative | isLongNegative
+
+    let shortMask = isShortNegative.allOneIfTrueOtherwiseZero
+    let longMask = isLongNegative.allOneIfTrueOtherwiseZero
+    let anyNegativeMask = anyNegative.allOneIfTrueOtherwiseZero
+
+    for i in 0..<commonCount {
+      let longWord = (long[i] ^ longMask) &+ isLongNegative
+      isLongNegative = Word(longWord < isLongNegative)
+
+      let shortWord = (short[i] ^ shortMask) &+ isShortNegative
+      isShortNegative = Word(shortWord < isShortNegative)
+
+      let word = ((longWord | shortWord) ^ anyNegativeMask) &+ anyNegative
+      anyNegative = Word(word < anyNegative)
+
+      lhs[i] = word
+    }
+
+    assert(isShortNegative == 0)
+
+    for i in commonCount..<resultCount {
+      let longWord = (long[i] ^ longMask) &+ isLongNegative
+      isLongNegative = Word(longWord < isLongNegative)
+
+      let word = ((longWord | shortMask) ^ anyNegativeMask) &+ anyNegative
+      anyNegative = Word(word < anyNegative)
+
+      lhs[i] = word
+    }
+
+    if isLhsNegative || isRhsNegative {
+      lhs[resultCount] = anyNegative // 0 or 1
+    }
   }
 
   // MARK: - Xor
 
   /// void
   /// mpz_xor (mpz_t r, const mpz_t u, const mpz_t v)
-  ///
-  /// Variable names mostly taken from GMP.
   internal mutating func xor(other: BigInt) {
     if self.isZero {
       self.storage = other.storage
@@ -238,60 +308,102 @@ extension BigInt {
 
     defer { self.storage.checkInvariants() }
 
-    // 'v' is smaller, 'u' is bigger
-    let v = self.storage.count <= other.storage.count ? self.storage : other.storage
-    let u = self.storage.count <= other.storage.count ? other.storage : self.storage
-    assert(v.count <= u.count)
+    // Self |Other|Result          Self|Other|Result
+    // short|long |count           long|short|count
+    // -----+-----+------          ----+-----+------
+    //   +  |  +  |Other             + |  +  |Self
+    //   +  |  -  |Other             + |  -  |Self
+    //   -  |  +  |Other             - |  +  |Self
+    //   -  |  -  |Other             - |  -  |Self
+    let isSelfLonger = self.storage.count >= other.storage.count
+    let resultCount = isSelfLonger ? self.storage.count : other.storage.count
+    let capacity = resultCount + (self.isNegative != other.isNegative ? 1 : 0)
 
-    var vIsNegative = v.isNegative.asWord
-    var uIsNegative = u.isNegative.asWord
-    var onlyOneNegative = vIsNegative ^ uIsNegative
+    // We will set the new count to have a full access to the underlying buffer.
+    // But we have to remember the previous count, because this is where we stop.
+    let selfCount = self.storage.count
+    let token = self.storage.guaranteeUniqueBufferReference(withCapacity: capacity)
+    self.storage.setCount(token, value: capacity)
 
-    let vMask = vIsNegative.allOneIfTrueOtherwiseZero
-    let uMask = uIsNegative.allOneIfTrueOtherwiseZero
-    let onlyOneNegativeMask = onlyOneNegative.allOneIfTrueOtherwiseZero
-
-    let resultCount = u.count
-    var result = BigIntStorage(repeating: 0, count: resultCount + Int(onlyOneNegative))
-    let token = result.guaranteeUniqueBufferReference()
-
-    result.withMutableWordsBuffer(token) { result in
-      u.withWordsBuffer { u in
-        v.withWordsBuffer { v in
-          for i in 0..<v.count {
-            let ul = (u[i] ^ uMask) &+ uIsNegative
-            uIsNegative = (ul < uIsNegative).asWord
-
-            let vl = (v[i] ^ vMask) &+ vIsNegative
-            vIsNegative = (vl < vIsNegative).asWord
-
-            let rl = (ul ^ vl ^ onlyOneNegativeMask) &+ onlyOneNegative
-            onlyOneNegative = (rl < onlyOneNegative).asWord
-
-            result[i] = rl
-          }
-
-          assert(vIsNegative == 0)
-
-          for i in v.count..<resultCount {
-            let ul = (u[i] ^ uMask) &+ uIsNegative
-            uIsNegative = (ul < uIsNegative).asWord
-
-            let rl = (ul ^ uMask) &+ onlyOneNegative
-            onlyOneNegative = (rl < onlyOneNegative).asWord
-
-            result[i] = rl
-          }
-
-          if onlyOneNegative.isTrue {
-            result[resultCount] = onlyOneNegative
-          }
-        }
+    self.storage.withMutableWordsBuffer(token) { selfPtr in
+      other.storage.withWordsBuffer { otherPtr in
+        Self.xor(
+          isLhsNegative: self.isNegative,
+          lhs: selfPtr,
+          isRhsNegative: other.isNegative,
+          rhs: otherPtr,
+          lhsCount: selfCount,
+          resultCount: resultCount
+        )
       }
     }
 
-    result.isNegative = self.isNegative != other.isNegative
-    result.fixInvariants(token)
-    self.storage = result
+    self.storage.isNegative = self.isNegative != other.isNegative
+    self.storage.fixInvariants(token)
+  }
+
+  private static func xor(
+    isLhsNegative: Bool,
+    lhs: UnsafeMutableBufferPointer<Word>,
+    isRhsNegative: Bool,
+    rhs: UnsafeBufferPointer<Word>,
+    lhsCount: Int, // Count before resize
+    resultCount: Int // Count after resize (but without onlyOneNegative word)
+  ) {
+    var isShortNegative: Word
+    let short: UnsafeBufferPointer<Word>
+    var isLongNegative: Word
+    let long: UnsafeBufferPointer<Word>
+    let commonCount: Int
+    let rhsCount = rhs.count
+
+    if lhsCount <= rhsCount {
+      short = UnsafeBufferPointer(lhs)
+      isShortNegative = Word(isLhsNegative)
+      long = rhs
+      isLongNegative = Word(isRhsNegative)
+      commonCount = lhsCount
+    } else {
+      short = rhs
+      isShortNegative = Word(isRhsNegative)
+      long = UnsafeBufferPointer(lhs)
+      isLongNegative = Word(isLhsNegative)
+      commonCount = rhsCount
+    }
+
+    var onlyOneNegative = isShortNegative ^ isLongNegative
+
+    let shortMask = isShortNegative.allOneIfTrueOtherwiseZero
+    let longMask = isLongNegative.allOneIfTrueOtherwiseZero
+    let onlyOneNegativeMask = onlyOneNegative.allOneIfTrueOtherwiseZero
+
+    for i in 0..<commonCount {
+      let longWord = (long[i] ^ longMask) &+ isLongNegative
+      isLongNegative = Word(longWord < isLongNegative)
+
+      let shortWord = (short[i] ^ shortMask) &+ isShortNegative
+      isShortNegative = Word(shortWord < isShortNegative)
+
+      let word = (longWord ^ shortWord ^ onlyOneNegativeMask) &+ onlyOneNegative
+      onlyOneNegative = Word(word < onlyOneNegative)
+
+      lhs[i] = word
+    }
+
+    assert(isShortNegative == 0)
+
+    for i in commonCount..<resultCount {
+      let longWord = (long[i] ^ longMask) &+ isLongNegative
+      isLongNegative = Word(longWord < isLongNegative)
+
+      let word = (longWord ^ longMask) &+ onlyOneNegative
+      onlyOneNegative = Word(word < onlyOneNegative)
+
+      lhs[i] = word
+    }
+
+    if isLhsNegative != isRhsNegative {
+      lhs[resultCount] = onlyOneNegative // 0 or 1
+    }
   }
 }

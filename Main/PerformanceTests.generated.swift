@@ -13,17 +13,7 @@
 // python3 PerformanceTests.generated.py > PerformanceTests.generated.swift
 //===----------------------------------------------------------------------===//
 
-import XCTest
-import Foundation
-@testable import BigInt
-
-// swiftlint:disable line_length
-// swiftlint:disable file_length
-// swiftlint:disable function_body_length
-// swiftlint:disable force_unwrapping
-// swiftlint:disable convenience_type
-
-#if PERFORMANCE_TEST
+import BigInt
 
 private struct TestValues {
   fileprivate let int: [BigInt]
@@ -59,37 +49,6 @@ private let shifts = [0, 7, 61, 67, 127] // Primes, but that does not matter
 private let metrics: [XCTMetric] = [XCTClockMetric()] // XCTMemoryMetric()?
 private let options = XCTMeasureOptions.default
 
-#if os(Linux)
-#if swift(<5.7)
-#if (arch(i386) || arch(x86_64)) && !os(Windows) && !os(Android)
-private typealias Duration = Float80
-#else
-private typealias Duration = Double
-#endif
-
-extension Duration {
-  fileprivate static func seconds(_ n: Int) -> Duration {
-    return Duration(exactly: n)!
-  }
-
-  fileprivate static func / (lhs: Duration, rhs: Int) -> Duration {
-    let r = Duration(exactly: rhs)!
-    return lhs / r
-  }
-}
-
-private struct ContinuousClock {
-  fileprivate func measure(_ fn: () -> Void) -> Duration {
-    let start = DispatchTime.now()
-    fn()
-    let end = DispatchTime.now()
-    let nano = end.uptimeNanoseconds - start.uptimeNanoseconds
-    let nanoDuration = Duration(exactly: nano)!
-    return nanoDuration / 1_000_000_000.0
-  }
-}
-#endif // #if swift(<5.7)
-
 private class XCTMetric {}
 private class XCTClockMetric: XCTMetric {}
 
@@ -97,39 +56,25 @@ private struct XCTMeasureOptions {
   fileprivate static let `default` = XCTMeasureOptions()
 }
 
-extension XCTestCase {
-  fileprivate func measure(
-    metrics: [XCTMetric],
-    options: XCTMeasureOptions,
-    fn: () -> Void
-  ) {
+extension PerformanceTests {
+  fileprivate func measure(metrics: [XCTMetric], options: XCTMeasureOptions, fn: () -> ()) {
     // Create static values, fill cache, etc.
     fn()
 
-    let clock = ContinuousClock()
-    var results = [Duration]()
-
     for _ in 0..<10 {
-      let elapsed = clock.measure(fn)
-      results.append(elapsed)
+      fn()
     }
-
-    let withoutExtremes = results.sorted().dropFirst().dropLast()
-    let totalDuration = withoutExtremes.reduce(Duration.seconds(0), +)
-    let averageDuration = totalDuration / withoutExtremes.count
-    print("average: \(averageDuration), values: \(results)")
   }
 }
-#endif // #if os(Linux)
 
-class PerformanceTests: XCTestCase {
+class PerformanceTests {
 
   // MARK: - From String
 
   func test_string_fromRadix8() {
     let strings = stringValues.big.map { String($0, radix: 8, uppercase: false) }
 
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for s in strings {
         _ = BigInt(s, radix: 8)
       }
@@ -139,7 +84,7 @@ class PerformanceTests: XCTestCase {
   func test_string_fromRadix10() {
     let strings = stringValues.big.map { String($0, radix: 10, uppercase: false) }
 
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for s in strings {
         _ = BigInt(s, radix: 10)
       }
@@ -149,7 +94,7 @@ class PerformanceTests: XCTestCase {
   func test_string_fromRadix16() {
     let strings = stringValues.big.map { String($0, radix: 16, uppercase: false) }
 
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for s in strings {
         _ = BigInt(s, radix: 16)
       }
@@ -159,7 +104,7 @@ class PerformanceTests: XCTestCase {
   // MARK: - To string
 
   func test_string_toRadix8() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for n in stringValues.big {
         _ = String(n, radix: 8, uppercase: false)
       }
@@ -167,7 +112,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_string_toRadix10() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for n in stringValues.big {
         _ = String(n, radix: 10, uppercase: false)
       }
@@ -175,7 +120,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_string_toRadix16() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for n in stringValues.big {
         _ = String(n, radix: 16, uppercase: false)
       }
@@ -185,7 +130,7 @@ class PerformanceTests: XCTestCase {
   // MARK: - Equatable
 
   func test_equatable_int() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (int, big) in equatableComparableValues.intBig {
         _ = big == int
       }
@@ -193,7 +138,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_equatable_big() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (lhs, rhs) in equatableComparableValues.bigBig {
         _ = lhs == rhs
       }
@@ -203,7 +148,7 @@ class PerformanceTests: XCTestCase {
   // MARK: - Comparable
 
   func test_comparable_int() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (int, big) in equatableComparableValues.intBig {
         _ = big < int
       }
@@ -211,7 +156,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_comparable_big() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (lhs, rhs) in equatableComparableValues.bigBig {
         _ = lhs < rhs
       }
@@ -221,7 +166,7 @@ class PerformanceTests: XCTestCase {
   // MARK: - Plus
 
   func test_unary_plus_int() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for n in unaryValues.int {
         _ = +n
       }
@@ -229,7 +174,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_unary_plus_big() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for n in unaryValues.big {
         _ = +n
       }
@@ -239,7 +184,7 @@ class PerformanceTests: XCTestCase {
   // MARK: - Minus
 
   func test_unary_minus_int() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for n in unaryValues.int {
         _ = -n
       }
@@ -247,7 +192,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_unary_minus_big() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for n in unaryValues.big {
         _ = -n
       }
@@ -257,7 +202,7 @@ class PerformanceTests: XCTestCase {
   // MARK: - Invert
 
   func test_unary_invert_int() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for n in unaryValues.int {
         _ = ~n
       }
@@ -265,7 +210,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_unary_invert_big() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for n in unaryValues.big {
         _ = ~n
       }
@@ -275,7 +220,7 @@ class PerformanceTests: XCTestCase {
   // MARK: - Add
 
   func test_binary_add_int() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (int, big) in addSubValues.intBig {
         _ = big + int
       }
@@ -283,7 +228,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_add_int_inout() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (int, big) in addSubValues.intBig {
         var copy = big
         copy += int
@@ -292,7 +237,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_add_big() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (lhs, rhs) in addSubValues.bigBig {
         _ = lhs + rhs
       }
@@ -300,7 +245,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_add_big_inout() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (lhs, rhs) in addSubValues.bigBig {
         var copy = lhs
         copy += rhs
@@ -311,7 +256,7 @@ class PerformanceTests: XCTestCase {
   // MARK: - Sub
 
   func test_binary_sub_int() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (int, big) in addSubValues.intBig {
         _ = big - int
       }
@@ -319,7 +264,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_sub_int_inout() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (int, big) in addSubValues.intBig {
         var copy = big
         copy -= int
@@ -328,7 +273,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_sub_big() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (lhs, rhs) in addSubValues.bigBig {
         _ = lhs - rhs
       }
@@ -336,7 +281,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_sub_big_inout() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (lhs, rhs) in addSubValues.bigBig {
         var copy = lhs
         copy -= rhs
@@ -347,7 +292,7 @@ class PerformanceTests: XCTestCase {
   // MARK: - Mul
 
   func test_binary_mul_int() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (int, big) in mulDivValues.intBig {
         _ = big * int
       }
@@ -355,7 +300,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_mul_int_inout() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (int, big) in mulDivValues.intBig {
         var copy = big
         copy *= int
@@ -364,7 +309,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_mul_big() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (lhs, rhs) in mulDivValues.bigBig {
         _ = lhs * rhs
       }
@@ -372,7 +317,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_mul_big_inout() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (lhs, rhs) in mulDivValues.bigBig {
         var copy = lhs
         copy *= rhs
@@ -383,7 +328,7 @@ class PerformanceTests: XCTestCase {
   // MARK: - Div
 
   func test_binary_div_int() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (int, big) in mulDivValues.intBig {
         if int == 0 { continue }
         _ = big / int
@@ -392,7 +337,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_div_int_inout() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (int, big) in mulDivValues.intBig {
         if int == 0 { continue }
         var copy = big
@@ -402,7 +347,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_div_big() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (lhs, rhs) in mulDivValues.bigBig {
         if rhs == 0 { continue }
         _ = lhs / rhs
@@ -411,7 +356,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_div_big_inout() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (lhs, rhs) in mulDivValues.bigBig {
         if rhs == 0 { continue }
         var copy = lhs
@@ -423,7 +368,7 @@ class PerformanceTests: XCTestCase {
   // MARK: - Mod
 
   func test_binary_mod_int() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (int, big) in mulDivValues.intBig {
         if int == 0 { continue }
         _ = big % int
@@ -432,7 +377,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_mod_int_inout() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (int, big) in mulDivValues.intBig {
         if int == 0 { continue }
         var copy = big
@@ -442,7 +387,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_mod_big() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (lhs, rhs) in mulDivValues.bigBig {
         if rhs == 0 { continue }
         _ = lhs % rhs
@@ -451,7 +396,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_mod_big_inout() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (lhs, rhs) in mulDivValues.bigBig {
         if rhs == 0 { continue }
         var copy = lhs
@@ -463,7 +408,7 @@ class PerformanceTests: XCTestCase {
   // MARK: - And
 
   func test_binary_and_int() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (int, big) in andOrXorValues.intBig {
         _ = big & int
       }
@@ -471,7 +416,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_and_int_inout() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (int, big) in andOrXorValues.intBig {
         var copy = big
         copy &= int
@@ -480,7 +425,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_and_big() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (lhs, rhs) in andOrXorValues.bigBig {
         _ = lhs & rhs
       }
@@ -488,7 +433,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_and_big_inout() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (lhs, rhs) in andOrXorValues.bigBig {
         var copy = lhs
         copy &= rhs
@@ -499,7 +444,7 @@ class PerformanceTests: XCTestCase {
   // MARK: - Or
 
   func test_binary_or_int() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (int, big) in andOrXorValues.intBig {
         _ = big | int
       }
@@ -507,7 +452,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_or_int_inout() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (int, big) in andOrXorValues.intBig {
         var copy = big
         copy |= int
@@ -516,7 +461,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_or_big() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (lhs, rhs) in andOrXorValues.bigBig {
         _ = lhs | rhs
       }
@@ -524,7 +469,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_or_big_inout() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (lhs, rhs) in andOrXorValues.bigBig {
         var copy = lhs
         copy |= rhs
@@ -535,7 +480,7 @@ class PerformanceTests: XCTestCase {
   // MARK: - Xor
 
   func test_binary_xor_int() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (int, big) in andOrXorValues.intBig {
         _ = big ^ int
       }
@@ -543,7 +488,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_xor_int_inout() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (int, big) in andOrXorValues.intBig {
         var copy = big
         copy ^= int
@@ -552,7 +497,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_xor_big() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (lhs, rhs) in andOrXorValues.bigBig {
         _ = lhs ^ rhs
       }
@@ -560,7 +505,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_binary_xor_big_inout() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for (lhs, rhs) in andOrXorValues.bigBig {
         var copy = lhs
         copy ^= rhs
@@ -571,7 +516,7 @@ class PerformanceTests: XCTestCase {
   // MARK: - Shift left
 
   func test_shiftLeft_int() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for n in shiftValues.int {
         for shift in shifts {
           _ = n << shift
@@ -581,7 +526,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_shiftLeft_int_inout() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for n in shiftValues.int {
         for shift in shifts {
           var copy = n
@@ -592,7 +537,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_shiftLeft_big() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for n in shiftValues.big {
         for shift in shifts {
           _ = n << shift
@@ -602,7 +547,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_shiftLeft_big_inout() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for n in shiftValues.big {
         for shift in shifts {
           var copy = n
@@ -615,7 +560,7 @@ class PerformanceTests: XCTestCase {
   // MARK: - Shift right
 
   func test_shiftRight_int() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for n in shiftValues.int {
         for shift in shifts {
           _ = n >> shift
@@ -625,7 +570,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_shiftRight_int_inout() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for n in shiftValues.int {
         for shift in shifts {
           var copy = n
@@ -636,7 +581,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_shiftRight_big() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for n in shiftValues.big {
         for shift in shifts {
           _ = n >> shift
@@ -646,7 +591,7 @@ class PerformanceTests: XCTestCase {
   }
 
   func test_shiftRight_big_inout() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       for n in shiftValues.big {
         for shift in shifts {
           var copy = n
@@ -659,19 +604,19 @@ class PerformanceTests: XCTestCase {
   // MARK: - π
 
   func test_pi_500() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       self.π(count: 500)
     }
   }
 
   func test_pi_1000() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       self.π(count: 1000)
     }
   }
 
   func test_pi_5000() {
-    self.measure(metrics: metrics, options: options) {
+    for _ in 0..<10 {
       self.π(count: 5000)
     }
   }
@@ -723,5 +668,3 @@ class PerformanceTests: XCTestCase {
     }
   }
 }
-
-#endif // #if PERFORMANCE_TEST

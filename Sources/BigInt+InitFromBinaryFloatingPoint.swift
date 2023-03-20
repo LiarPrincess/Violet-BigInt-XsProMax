@@ -23,7 +23,7 @@ extension BigInt {
     let radix = T(sign: .plus, exponent: T.Exponent(Word.bitWidth), significand: 1)
     repeat {
       let word = Word(float.truncatingRemainder(dividingBy: radix))
-      storage.append(token, element: word)
+      storage.appendWithPossibleGrow(token, element: word)
       float = (float / radix).rounded(.towardZero)
     } while !float.isZero
 

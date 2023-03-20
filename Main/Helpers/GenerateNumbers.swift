@@ -9,7 +9,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-@testable import BigInt
+import BigInt
 
 internal func generateInts(approximateCount: Int) -> [Int] {
   assert(approximateCount > 0, "[generateInts] Negative 'approximateCount'.")
@@ -18,9 +18,6 @@ internal func generateInts(approximateCount: Int) -> [Int] {
   result.append(0)
   result.append(1)
   result.append(-1)
-
-  let capacity = result.count + approximateCount
-  result.reserveCapacity(capacity)
 
   // 'Int' has smaller range on the positive side, so we will use it to calculate 'step'.
   let approximateCountHalf = approximateCount / 2
@@ -58,9 +55,6 @@ internal func generateBigInts(approximateCount: Int,
     result.append(BigIntPrototype(.positive, magnitude: magnitude))
     result.append(BigIntPrototype(.negative, magnitude: magnitude))
   }
-
-  let capacity = result.count + approximateCount
-  result.reserveCapacity(capacity)
 
   let approximateCountHalf = approximateCount / 2
   var word = Word.max / 2 // Start from half and go up by 1

@@ -7,6 +7,8 @@
 // V8 implements exactly the "Algorithm D" without any noise/weirdness.
 // Their implementation is AMAZING.
 
+// swiftlint:disable file_length
+
 extension BigInt {
 
   public static func / (lhs: BigInt, rhs: BigInt) -> BigInt {
@@ -101,8 +103,8 @@ extension BigInt {
 
     switch self.compareMagnitude(with: other) {
     case .equal: // 5 / 5 = 1 rem 0 and also 5 / (-5) = -1 rem 0
-      let token = self.storage.guaranteeUniqueBufferReference()
-      self.storage.setTo(token, value: resultIsNegative ? -1 : 1)
+      let token = self.storage.guaranteeUniqueBufferReference(withCapacity: 1)
+      self.storage.setToAssumingCapacity(token, value: resultIsNegative ? -1 : 1)
       return .zero
 
     case .less: // 3 / 5 = 0 rem 3
@@ -158,7 +160,7 @@ extension BigInt {
     // Special cases: other is '0', '1' or '-1'
     precondition(!other.isZero, "Division by zero")
 
-    if other.hasMagnitudeOfOne {
+    if other.isMagnitude1 {
       // x /   1  =  x rem 0
       // x / (-1) = -x rem 0
       if other.isNegative {
@@ -177,11 +179,11 @@ extension BigInt {
 
     let resultIsNegative = self.divIsNegative(otherIsNegative: other.isNegative)
     let remainderIsNegative = self.remIsNegative(otherIsNegative: other.isNegative)
-    let token = self.storage.guaranteeUniqueBufferReference()
 
     switch self.compareMagnitude(with: other) {
     case .equal: // 5 / 5 = 1 rem 0 and also 5 / (-5) = -1 rem 0
-      self.storage.setTo(token, value: resultIsNegative ? -1 : 1)
+      let token = self.storage.guaranteeUniqueBufferReference(withCapacity: 1)
+      self.storage.setToAssumingCapacity(token, value: resultIsNegative ? -1 : 1)
       return .zero
 
     case .less: // 3 / 5 = 0 rem 3
@@ -193,7 +195,8 @@ extension BigInt {
       return remainder
 
     case .greater:
-      var remainder = Self.divMagnitude(token,  &self.storage, by: other.storage)
+      let token = self.storage.guaranteeUniqueBufferReference()
+      var remainder = Self.divMagnitude(token, &self.storage, by: other.storage)
       self.storage.isNegative = resultIsNegative
       self.storage.fixInvariants(token)
 
@@ -338,7 +341,7 @@ extension BigInt {
 
     fileprivate mutating func append(_ word: Word) {
       self[self.count] = word
-      self.count += 1
+      self.count &+= 1
     }
 
     fileprivate mutating func removeAll() {
@@ -491,10 +494,11 @@ extension BigInt {
     var borrow: Word = 0
 
     for i in 0..<rhs.count {
-      let (word1, borrow1) = lhs[startIndex + i].subtractingReportingOverflow(rhs[i])
+      let lhsIndex = startIndex &+ i
+      let (word1, borrow1) = lhs[lhsIndex].subtractingReportingOverflow(rhs[i])
       let (word2, borrow2) = word1.subtractingReportingOverflow(borrow)
-      lhs[startIndex + i] = word2
       borrow = (borrow1 ? 1 : 0) + (borrow2 ? 1 : 0)
+      lhs[lhsIndex] = word2
     }
 
     return borrow
@@ -512,8 +516,8 @@ extension BigInt {
     for i in 0..<lhs.count {
       let (high, low) = lhs[i].multipliedFullWidth(by: rhs)
       let (word, overflow) = low.addingReportingOverflow(carry)
+      carry = (overflow ? 1 : 0) &+ high
       result.append(word)
-      carry = high &+ (overflow ? 1 : 0)
     }
 
     // Add the leftover carry

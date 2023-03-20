@@ -9,8 +9,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-import XCTest
-@testable import BigInt
+import BigInt
 
 // MARK: - BigIntPrototype
 
@@ -126,7 +125,7 @@ internal struct BigIntPrototype {
   }
 
   internal func create() -> BigInt {
-    return BigIntPrototype.create(isPositive: self.isPositive, magnitude: self.magnitude)
+    return BigInt.initFast(isPositive: self.isPositive, magnitude: self.magnitude)
   }
 
   internal static func create<T: FixedWidthInteger>(
@@ -134,30 +133,13 @@ internal struct BigIntPrototype {
     magnitude: [T]
   ) -> BigInt {
     assert(!T.isSigned)
+
     var result = BigInt()
 
-    if magnitude.isEmpty {
-      return result
-    }
-
-    if T.bitWidth == BigIntStorage.Word.bitWidth {
-      let count = magnitude.count
-      let token = result.storage.guaranteeUniqueBufferReference(withCapacity: count)
-
-      magnitude.withContiguousStorageIfAvailable { tPtr in
-        tPtr.withMemoryRebound(to: BigIntStorage.Word.self) { wordsPtr in
-          result.storage.replaceAllAssumingCapacity(token, withContentsOf: wordsPtr)
-        }
-      }
-
-      result.storage.fixInvariants(token)
-      result.storage.checkInvariants()
-    } else {
-      for (index, word) in magnitude.enumerated() {
-        var bits = BigInt(word)
-        bits <<= index * T.bitWidth
-        result |= bits
-      }
+    for (index, word) in magnitude.enumerated() {
+      var bits = BigInt(word)
+      bits <<= index * T.bitWidth
+      result |= bits
     }
 
     if !isPositive {
@@ -246,58 +228,5 @@ internal struct WithEachMagnitudeWordModified: Sequence {
 
   internal func makeIterator() -> Iterator {
     return Iterator(base: self.base, wordChange: self.wordChange)
-  }
-}
-
-// MARK: - Tests
-
-/// Tests for `BigIntPrototype`.
-/// Yep… we are testing our test code…
-class BigIntPrototypeTests: XCTestCase {
-
-  func test_create() {
-    let p1 = BigIntPrototype(.positive, magnitude: [.max])
-    let big1 = p1.create()
-    let expected1 = BigInt(BigIntPrototype.Word.max)
-    XCTAssertEqual(big1, expected1)
-
-    let p2 = BigIntPrototype(.positive, magnitude: [0, 1])
-    let big2 = p2.create()
-    let expected2 = BigInt(BigIntPrototype.Word.max) + 1
-    XCTAssertEqual(big2, expected2)
-  }
-
-  func test_magnitudeWordModified_positive() {
-    let p = BigIntPrototype(.positive, magnitude: [3, .max, 5])
-    let modified = p.withEachMagnitudeWordModified(byAdding: 7)
-    var iter = modified.makeIterator()
-
-    let p1 = iter.next()
-    XCTAssertEqual(p1?.magnitude, [10, .max, 5])
-
-    // '.max' should be skipped, because it overflows
-
-    let p2 = iter.next()
-    XCTAssertEqual(p2?.magnitude, [3, .max, 12])
-
-    let p3 = iter.next()
-    XCTAssertNil(p3)
-  }
-
-  func test_magnitudeWordModified_negative() {
-    let p = BigIntPrototype(.positive, magnitude: [7, 3, 11])
-    let modified = p.withEachMagnitudeWordModified(byAdding: -5)
-    var iter = modified.makeIterator()
-
-    let p1 = iter.next()
-    XCTAssertEqual(p1?.magnitude, [2, 3, 11])
-
-    // '3' should be skipped, because it overflows
-
-    let p2 = iter.next()
-    XCTAssertEqual(p2?.magnitude, [7, 3, 6])
-
-    let p3 = iter.next()
-    XCTAssertNil(p3)
   }
 }

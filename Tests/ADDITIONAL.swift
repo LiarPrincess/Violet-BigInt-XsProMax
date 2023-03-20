@@ -19,7 +19,7 @@ extension BigIntStorage {
 
     let token = self.guaranteeUniqueBufferReference()
     for word in words {
-      self.append(token, element: word)
+      self.appendAssumingCapacity(token, element: word)
     }
   }
 }
